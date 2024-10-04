@@ -4,3 +4,4 @@
 !*.c
 !*.md
 !.gitignore
+!*.txt
