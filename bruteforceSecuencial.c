@@ -3,14 +3,21 @@
 #include <stdlib.h>
 #include <gcrypt.h>
 
-void decrypt(unsigned char *key, char *ciph, int len){
+void decrypt(long key, char *ciph, int len){
     gcry_cipher_hd_t hd;
+    long k = 0;
+
+    // Ajustar la clave de 56 bits en un arreglo de 64 bits con paridad
+    for(int i = 0; i < 8; ++i){
+        key <<= 1;
+        k += (key & (0xFE << i*8));  // Ajustar la paridad de cada byte
+    }
 
     // Inicializar el manejador de cifrado (DES ECB)
     gcry_cipher_open(&hd, GCRY_CIPHER_DES, GCRY_CIPHER_MODE_ECB, 0);
     
-    // Establecer la clave
-    gcry_cipher_setkey(hd, key, 8);  // DES requiere una clave de 8 bytes (64 bits)
+    // Establecer la clave con paridad ajustada
+    gcry_cipher_setkey(hd, &k, 8);
 
     // Desencriptar el bloque
     gcry_cipher_decrypt(hd, (unsigned char *)ciph, len, NULL, 0);
@@ -19,14 +26,21 @@ void decrypt(unsigned char *key, char *ciph, int len){
     gcry_cipher_close(hd);
 }
 
-void encrypt(unsigned char *key, char *ciph, int len){
+void encrypt(long key, char *ciph, int len){
     gcry_cipher_hd_t hd;
+    long k = 0;
+
+    // Ajustar la clave de 56 bits en un arreglo de 64 bits con paridad
+    for(int i = 0; i < 8; ++i){
+        key <<= 1;
+        k += (key & (0xFE << i*8));  // Ajustar la paridad de cada byte
+    }
 
     // Inicializar el manejador de cifrado (DES ECB)
     gcry_cipher_open(&hd, GCRY_CIPHER_DES, GCRY_CIPHER_MODE_ECB, 0);
 
-    // Establecer la clave
-    gcry_cipher_setkey(hd, key, 8);  // DES requiere una clave de 8 bytes (64 bits)
+    // Establecer la clave con paridad ajustada
+    gcry_cipher_setkey(hd, &k, 8);
 
     // Encriptar el bloque
     gcry_cipher_encrypt(hd, (unsigned char *)ciph, len, NULL, 0);
@@ -35,33 +49,22 @@ void encrypt(unsigned char *key, char *ciph, int len){
     gcry_cipher_close(hd);
 }
 
-int tryKey(long key, unsigned char *ciph, int len, const char* original_text) {
-    unsigned char key_bytes[8];
+int tryKey(long key, char *ciph, int len, const char *search){
     char temp[len + 1];
     memcpy(temp, ciph, len);
     temp[len] = '\0';
+    decrypt(key, temp, len);
 
-    // Convertir el valor long en una clave de 8 bytes
-    for (int i = 0; i < 8; i++) {
-        key_bytes[i] = (key >> (i * 8)) & 0xFF;
-    }
-
-    // Desencriptar el texto usando la clave actual
-    decrypt(key_bytes, temp, len);
-
-    // Verificar si el texto desencriptado es el correcto
-    if (strcmp(temp, original_text) == 0) {
-        printf("¡Clave encontrada! %ld\n", key);
-        return 1;  // Clave correcta encontrada
-    } else {
+    // Mostrar intentos fallidos
+    if (strstr(temp, search) == NULL) {
         printf("Clave incorrecta: %ld\n", key);
-        return 0;  // Continuar probando
+        return 0;
     }
+    return 1;
 }
 
 int main(){
     char input[256];
-    unsigned char key[8] = {0};  // DES usa una clave de 8 bytes
     long input_key;
 
     // Pedir al usuario el texto a cifrar
@@ -88,13 +91,8 @@ int main(){
     printf("Introduce la clave (long, un número): ");
     scanf("%ld", &input_key);
 
-    // Copiar la clave numérica en el arreglo de bytes (8 bytes)
-    for (int i = 0; i < 8; i++) {
-        key[i] = (input_key >> (i * 8)) & 0xFF;
-    }
-
     // Cifrar el texto ingresado
-    encrypt(key, padded_input, padded_len);
+    encrypt(input_key, padded_input, padded_len);
     printf("Texto cifrado (en bytes):\n");
     for (int i = 0; i < padded_len; i++) {
         printf("%02x ", (unsigned char)padded_input[i]);
@@ -104,18 +102,22 @@ int main(){
     // Comenzar la búsqueda de la clave correcta
     printf("\nIniciando búsqueda de la clave correcta...\n");
 
-    // Probar claves desde 0 hasta encontrar la correcta
+    // Probar claves desde 0 hasta encontrar la correcta (2^56 claves posibles)
+    long upper = (1L << 56);  // Límite superior para claves de DES (2^56)
     long found = 0;
-    for (long test_key = 0; test_key < 1000000000; ++test_key) {
-        if (tryKey(test_key, (unsigned char *)padded_input, padded_len, input)) {
+    for (long test_key = 0; test_key < upper; ++test_key) {
+        if (tryKey(test_key, (char *)padded_input, padded_len, input)) {
             found = test_key;
+            printf("¡Clave encontrada: %ld!\n", found);
             break;
         }
     }
 
     // Si se encuentra la clave correcta
     if (found != 0) {
-        printf("Texto desencriptado correctamente con la clave: %ld\n", found);
+        decrypt(found, (char *)padded_input, padded_len);
+        printf("Texto descifrado correctamente con la clave: %ld\n", found);
+        printf("Texto descifrado: %s\n", padded_input);
     } else {
         printf("No se encontró la clave en el rango probado.\n");
     }
