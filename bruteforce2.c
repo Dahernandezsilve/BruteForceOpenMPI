@@ -108,7 +108,11 @@ int main(int argc, char *argv[]) {
 
     if (rank == 0) {
         encrypt(input_key, padded_input, padded_len);
-        printf("Texto encriptado: %s\n", padded_input);
+        printf("Texto encriptado (en bytes):\n");
+        for (int i = 0; i < padded_len; i++) {
+            printf("%02x ", (unsigned char)padded_input[i]);
+        }
+        printf("\n");
     }
 
     MPI_Bcast(padded_input, padded_len, MPI_CHAR, 0, MPI_COMM_WORLD);
@@ -125,6 +129,8 @@ int main(int argc, char *argv[]) {
     clock_t start_time = clock();  // Empezar a medir el tiempo
 
     for (long test_key = mylower; test_key < myupper && found == 0; ++test_key) {
+        printf("Nodo %d probando clave: %ld\n", rank, test_key);
+
         if (tryKey(test_key, padded_input, padded_len, search_phrase)) {
             found = test_key;
             printf("¡Clave encontrada por el nodo %d: %ld!\n", rank, found);
@@ -136,20 +142,27 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Asegurar que todos los nodos terminan correctamente al encontrar la clave
+    int flag;
+    while (found == 0) {
+        MPI_Test(&req, &flag, MPI_STATUS_IGNORE);
+        if (flag) break;
+    }
+
     if (rank == 0) {
         MPI_Wait(&req, MPI_STATUS_IGNORE);
 
         if (found != 0) {
             decrypt(found, padded_input, padded_len);
             printf("Clave correcta: %ld\n", found);
-            printf("Texto descifrado: %s\n", padded_input);
+            printf("Texto descifrado correctamente: %s\n", padded_input);
         } else {
             printf("No se encontró la clave en el rango probado.\n");
         }
 
         clock_t end_time = clock();
         double time_taken = (double)(end_time - start_time) / CLOCKS_PER_SEC;
-        printf("Tiempo de ejecución: %.2f segundos\n", time_taken);
+        printf("Tiempo de ejecución: %f segundos\n", time_taken);
     }
 
     MPI_Finalize();
