@@ -58,7 +58,7 @@ int tryKey(long key, char *ciph, int len, const char *search) {
 
     // Mostrar intentos fallidos
     if (strstr(temp, search) == NULL) {
-        printf("Clave incorrecta: %ld\n", key);
+        //printf("Clave incorrecta: %ld\n", key);
         return 0;
     }
     return 1;
@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
     }
 
     // Mostrar el tiempo de ejecución
-    printf("Tiempo de ejecución: %.2f segundos\n", time_taken);
+    printf("Tiempo de ejecución (seg): %.2f\n", time_taken);
 
     return 0;
 }

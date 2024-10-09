@@ -1,8 +1,9 @@
 #include <string.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <gcrypt.h>
-#include <unistd.h>
+#include <stdbool.h>
 #include <mpi.h>
 
 #define BATCH_SIZE 1000000  // Tamaño del lote de claves
@@ -122,77 +123,69 @@ int main(int argc, char *argv[]) {
 
     long upper = (1L << 56);  // Límite superior para claves de DES (2^56)
     long found = 0;
-    int stop_search = 0;
+    bool stop_search = false;
 
     double start_time = MPI_Wtime();  // Comienza la medición de tiempo
 
-    while (found == 0 && stop_search == 0) {
-        // Solicitar y asignar el nuevo lote de claves
-        long mylower;
-        long myupper;
+    // Inicialización del rango de claves
+    static long current_key = 0;
+    while (!stop_search) {
+        long mylower, myupper;
 
         if (rank == 0) {
-            // El proceso maestro actualiza el rango de claves
-            static long current_key = 0;
+            // El proceso maestro distribuye rangos de claves
             mylower = current_key;
             myupper = mylower + BATCH_SIZE;
 
-            // Asegurar que no se exceda el rango de claves
             if (myupper > upper) {
                 myupper = upper;
             }
-
-            // Actualizar la clave actual para el siguiente lote
             current_key = myupper;
         }
 
-        // Broadcast del nuevo lote de claves a todos los nodos
+        // Distribuir el rango de claves a todos los procesos
         MPI_Bcast(&mylower, 1, MPI_LONG, 0, MPI_COMM_WORLD);
         MPI_Bcast(&myupper, 1, MPI_LONG, 0, MPI_COMM_WORLD);
 
-        // Revisar el lote de claves
-        for (long test_key = mylower; test_key < myupper && found == 0; ++test_key) {
-            printf("Nodo %d probando clave: %ld\n", rank, test_key);
-
+        // Cada proceso intenta su lote de claves
+        for (long test_key = mylower + rank; test_key < myupper && !stop_search; test_key += size) {
             if (tryKey(test_key, padded_input, padded_len, search_phrase)) {
                 found = test_key;
                 printf("¡Clave encontrada por el nodo %d: %ld!\n", rank, found);
-
-                // Notificar a todos los procesos de que se encontró la clave
-                MPI_Bcast(&found, 1, MPI_LONG, rank, MPI_COMM_WORLD);
-                stop_search = 1;
-                break;
-            }
-
-            // Verificar si otro proceso encontró la clave
-            MPI_Iprobe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &stop_search, MPI_STATUS_IGNORE);
-            if (stop_search) {
-                // Recibimos notificación de que se encontró la clave
-                MPI_Bcast(&found, 1, MPI_LONG, MPI_ANY_SOURCE, MPI_COMM_WORLD);
+                stop_search = true;
                 break;
             }
         }
 
-        // Si hemos alcanzado el límite superior y no se ha encontrado la clave, detener la búsqueda
+        // Verificar si se encontró la clave o si se llegó al límite
+        MPI_Allreduce(MPI_IN_PLACE, &stop_search, 1, MPI_C_BOOL, MPI_LOR, MPI_COMM_WORLD);
         if (mylower >= upper) {
-            stop_search = 1;
+            stop_search = true;
         }
+
+        // Asegurarse de que todos los procesos conozcan la clave encontrada
+        MPI_Allreduce(MPI_IN_PLACE, &found, 1, MPI_LONG, MPI_MAX, MPI_COMM_WORLD);
     }
 
-    // Sincronización para evitar que el programa termine antes de mostrar el texto descifrado
+    // Esperar a que todos los procesos terminen
     MPI_Barrier(MPI_COMM_WORLD);
-    sleep(TIMEOUT);
 
-    if (found != 0 && rank == 0) {
-        decrypt(found, padded_input, padded_len);
-        printf("Clave correcta: %ld\n", found);
-        printf("Texto descifrado correctamente: %s\n", padded_input);
+    // Solo el proceso 0 imprime los resultados
+    if (rank == 0) {
+        if (found != 0) {
+            decrypt(found, padded_input, padded_len);
+            printf("Clave correcta: %ld\n", found);
+            printf("Texto descifrado correctamente: %s\n", padded_input);
+        } else {
+            printf("No se encontró la clave.\n");
+        }
 
-        double end_time = MPI_Wtime();  // Finaliza la medición de tiempo
-        double time_taken = (end_time - start_time) - TIMEOUT;  // Tiempo total transcurrido
-        printf("Tiempo total de ejecución: %.2f segundos\n", time_taken);
+        double end_time = MPI_Wtime();
+        double time_taken = end_time - start_time;
+        printf("Tiempo de ejecución (seg): %.2f\n", time_taken);
     }
 
     MPI_Finalize();
     return 0;
 }
+
