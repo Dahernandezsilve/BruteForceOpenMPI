@@ -152,7 +152,7 @@ int main(int argc, char *argv[]) {
 
         // Revisar el lote de claves
         for (long test_key = mylower; test_key < myupper && found == 0; ++test_key) {
-            printf("Nodo %d probando clave: %ld\n", rank, test_key);
+            //printf("Nodo %d probando clave: %ld\n", rank, test_key);
 
             if (tryKey(test_key, padded_input, padded_len, search_phrase)) {
                 found = test_key;
@@ -190,7 +190,7 @@ int main(int argc, char *argv[]) {
 
         double end_time = MPI_Wtime();  // Finaliza la medición de tiempo
         double time_taken = (end_time - start_time) - TIMEOUT;  // Tiempo total transcurrido
-        printf("Tiempo total de ejecución: %.2f segundos\n", time_taken);
+        printf("Tiempo de ejecución (seg): %.6f\n", time_taken);
     }
 
     MPI_Finalize();
